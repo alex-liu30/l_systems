@@ -1,0 +1,167 @@
+import SwiftUI
+
+struct ContentView: View {
+    @StateObject private var viewModel = LSystemViewModel()
+    @State private var showingAdvancedOptions = false
+    @State private var regionX: String = ""
+    @State private var regionY: String = ""
+    @State private var regionWidth: String = ""
+    @State private var regionHeight: String = ""
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                if let image = viewModel.renderedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 300)
+                        .border(Color.gray, width: 1)
+                } else {
+                    Text("Generating image...")
+                        .frame(height: 300)
+                }
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Axiom", text: $viewModel.lSystem.axiom)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onChange(of: viewModel.lSystem.axiom) { _ in viewModel.generateImage() }
+                        
+                        ForEach(viewModel.lSystem.rules.keys.sorted(), id: \.self) { key in
+                            HStack {
+                                Text(key)
+                                TextField("Rule", text: Binding(
+                                    get: { viewModel.lSystem.rules[key] ?? "" },
+                                    set: { viewModel.lSystem.rules[key] = $0 }
+                                ))
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .onChange(of: viewModel.lSystem.rules[key]) { _ in viewModel.generateImage() }
+                            }
+                        }
+                        
+                        Button("Add Rule") {
+                            let newKey = "X\(viewModel.lSystem.rules.count + 1)"
+                            viewModel.lSystem.rules[newKey] = ""
+                        }
+                        
+                        Stepper("Iterations: \(viewModel.iterations)", value: $viewModel.iterations, in: 1...10)
+                            .onChange(of: viewModel.iterations) { _ in viewModel.generateImage() }
+                        
+                        HStack {
+                            Text("Angle: \(Int(viewModel.lSystem.angle))")
+                            Slider(value: $viewModel.lSystem.angle, in: 0...360, step: 1)
+                                .onChange(of: viewModel.lSystem.angle) { _ in viewModel.generateImage() }
+                        }
+                        
+                        HStack {
+                            Text("Step Size: \(Int(viewModel.lSystem.stepSize))")
+                            Slider(value: $viewModel.lSystem.stepSize, in: 1...50, step: 1)
+                                .onChange(of: viewModel.lSystem.stepSize) { _ in viewModel.generateImage() }
+                        }
+                        
+                        ColorPicker("Color", selection: $viewModel.color)
+                            .onChange(of: viewModel.color) { _ in viewModel.generateImage() }
+                        
+                        Toggle("Use Grayscale", isOn: $viewModel.useGrayscale)
+                            .onChange(of: viewModel.useGrayscale) { _ in viewModel.generateImage() }
+                        
+                        if viewModel.useGrayscale {
+                            HStack {
+                                Text("Grayscale Shades: \(Int(viewModel.grayscaleShades))")
+                                Slider(value: $viewModel.grayscaleShades, in: 2...256, step: 1)
+                                    .onChange(of: viewModel.grayscaleShades) { _ in viewModel.generateImage() }
+                            }
+                            
+                            Group {
+                                Text("Grayscale Region:")
+                                HStack {
+                                    TextField("X", text: $regionX)
+                                    TextField("Y", text: $regionY)
+                                    TextField("Width", text: $regionWidth)
+                                    TextField("Height", text: $regionHeight)
+                                }
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                
+                                Button("Apply Region") {
+                                    if let x = Double(regionX), let y = Double(regionY),
+                                       let width = Double(regionWidth), let height = Double(regionHeight) {
+                                        viewModel.grayscaleRegion = CGRect(x: x, y: y, width: width, height: height)
+                                        viewModel.generateImage()
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Button("Show Advanced Options") {
+                            showingAdvancedOptions.toggle()
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("L-System Generator")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu("Presets") {
+                        ForEach(viewModel.presetSystems.keys.sorted(), id: \.self) { key in
+                            Button(key) {
+                                viewModel.lSystem = viewModel.presetSystems[key]!
+                                viewModel.generateImage()
+                            }
+                        }
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        viewModel.saveToFile()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Load") {
+                        viewModel.loadFromFile()
+                        viewModel.generateImage()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAdvancedOptions) {
+                AdvancedOptionsView(viewModel: viewModel)
+            }
+        }
+    }
+}
+
+struct AdvancedOptionsView: View {
+    @ObservedObject var viewModel: LSystemViewModel
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Custom Colors")) {
+                    ForEach(0..<5) { index in
+                        ColorPicker("Color \(index + 1)", selection: .constant(Color.random))
+                    }
+                }
+                
+                Section(header: Text("Export")) {
+                    Button("Export as Image") {
+                        // Implement export functionality
+                    }
+                }
+            }
+            .navigationTitle("Advanced Options")
+            .navigationBarItems(trailing: Button("Done") {
+                presentationMode.wrappedValue.dismiss()
+            })
+        }
+    }
+}
+
+extension Color {
+    static var random: Color {
+        Color(red: Double.random(in: 0...1),
+              green: Double.random(in: 0...1),
+              blue: Double.random(in: 0...1))
+    }
+}
