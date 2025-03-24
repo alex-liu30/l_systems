@@ -1,0 +1,296 @@
+import SwiftUI
+import CoreGraphics
+import UIKit
+
+class ImageEditor {
+    func applyGrayscale(image: UIImage, shades: Int, region: CGRect? = nil) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        
+        let adjustedRegion = region == nil ? CGRect(x: 0, y: 0, width: width, height: height) : region!
+
+        guard let context = CGContext(data: nil, width: Int(adjustedRegion.width), height: Int(adjustedRegion.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0) else { return nil }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height), byTiling: false) 
+
+        guard let buffer = context.data?.bindMemory(to: UInt8.self, capacity: Int(adjustedRegion.width * adjustedRegion.height)) else { return nil }
+        
+        let startX = Int(adjustedRegion.origin.x)
+        let startY = Int(adjustedRegion.origin.y)
+        let endX = startX + Int(adjustedRegion.width)
+        let endY = startY + Int(adjustedRegion.height)
+        
+        for y in startY..= 0 && x = 0 && y  String {
+        var result = axiom
+        for _ in 0.. CGPath {
+        let turtle = TurtleGraphics()
+        let instructions = lSystem.generate(iterations: iterations)
+        
+        for char in instructions {
+            switch char {
+            case "F", "G":
+                turtle.move(lSystem.stepSize)
+            case "+":
+                turtle.turn(lSystem.angle)
+            case "-":
+                turtle.turn(-lSystem.angle)
+            case "[":
+                turtle.push()
+            case "]":
+                turtle.pop()
+            default:
+                break
+            }
+        }
+        
+        return turtle.path
+    }
+    
+    func saveToFile() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(lSystem) {
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let fileURL = documentsDirectory.appendingPathComponent("lsystem.json")
+            try? data.write(to: fileURL)
+        }
+    }
+    
+    func loadFromFile() {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileURL = documentsDirectory.appendingPathComponent("lsystem.json")
+        if let data = try? Data(contentsOf: fileURL) {
+            let decoder = JSONDecoder()
+            if let loadedSystem = try? decoder.decode(LSystem.self, from: data) {
+                self.lSystem = loadedSystem
+            }
+        }
+    }
+    
+    func generateImage() {
+        let path = generatePath()
+        let bounds = CGRect(x: 0, y: 0, width: 500, height: 500)
+        
+        UIGraphicsBeginImageContextWithOptions(bounds.size, false, 0.0)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        
+        context.addPath(path)
+        context.translateBy(x: bounds.width / 2, y: bounds.height / 2)
+        context.scaleBy(x: 1, y: -1)
+
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(1)
+        context.drawPath(using: .stroke)
+        
+        guard let image = UIGraphicsGetImageFromCurrentImageContext() else {
+            UIGraphicsEndImageContext()
+            return
+        }
+        UIGraphicsEndImageContext()
+        
+        var finalImage = image
+        if useGrayscale {
+            let editor = ImageEditor()
+            finalImage = editor.applyGrayscale(image: image, shades: Int(grayscaleShades), region: grayscaleRegion) ?? image
+        }
+        
+        DispatchQueue.main.async {
+            self.renderedImage = finalImage
+        }
+    }
+}
+
+struct LSystemRenderingView: View {
+    @ObservedObject var viewModel: LSystemViewModel
+    
+    var body: some View {
+        if let image = viewModel.renderedImage {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Text("Generating Image...")
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = LSystemViewModel()
+    @State private var showingAdvancedOptions = false
+    @State private var regionX: String = ""
+    @State private var regionY: String = ""
+    @State private var regionWidth: String = ""
+    @State private var regionHeight: String = ""
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                LSystemRenderingView(viewModel: viewModel)
+                    .frame(height: 300)
+                    .border(Color.gray, width: 1)
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Axiom", text: $viewModel.lSystem.axiom)
+                            .onChange(of: viewModel.lSystem.axiom) { _ in
+                                viewModel.generateImage()
+                            }
+                        
+                        ForEach(viewModel.lSystem.rules.keys.sorted(), id: \.self) { key in
+                            HStack {
+                                Text(key)
+                                TextField("Rule", text: Binding(
+                                    get: { viewModel.lSystem.rules[key] ?? "" },
+                                    set: { viewModel.lSystem.rules[key] = $0 }
+                                ))
+                                .onChange(of: viewModel.lSystem.rules[key]) { _ in
+                                    viewModel.generateImage()
+                                }
+                            }
+                        }
+                        
+                        Button("Add Rule") {
+                            let newKey = "X\(viewModel.lSystem.rules.count + 1)"
+                            viewModel.lSystem.rules[newKey] = ""
+                            viewModel.generateImage()
+                        }
+                        
+                        Stepper("Iterations: \(viewModel.iterations)", value: $viewModel.iterations, in: 1...10)
+                            .onChange(of: viewModel.iterations) { _ in
+                                viewModel.generateImage()
+                            }
+                        
+                        HStack {
+                            Text("Angle: \(Int(viewModel.lSystem.angle))")
+                            Slider(value: $viewModel.lSystem.angle, in: 0...360, step: 1)
+                                .onChange(of: viewModel.lSystem.angle) { _ in
+                                    viewModel.generateImage()
+                                }
+                        }
+                        
+                        HStack {
+                            Text("Step Size: \(Int(viewModel.lSystem.stepSize))")
+                            Slider(value: $viewModel.lSystem.stepSize, in: 1...50, step: 1)
+                                .onChange(of: viewModel.lSystem.stepSize) { _ in
+                                    viewModel.generateImage()
+                                }
+                        }
+                        
+                        ColorPicker("Color", selection: $viewModel.color)
+                            .onChange(of: viewModel.color) { _ in
+                                viewModel.generateImage()
+                            }
+                        
+                        Toggle("Use Grayscale", isOn: $viewModel.useGrayscale)
+                            .onChange(of: viewModel.useGrayscale) { _ in
+                                viewModel.generateImage()
+                            }
+                        
+                        if viewModel.useGrayscale {
+                            HStack {
+                                Text("Grayscale Shades: \(Int(viewModel.grayscaleShades))")
+                                Slider(value: $viewModel.grayscaleShades, in: 2...256, step: 1)
+                                    .onChange(of: viewModel.grayscaleShades) { _ in
+                                        viewModel.generateImage()
+                                    }
+                            }
+                            
+                            Text("Region (x y width height):")
+                            HStack {
+                                TextField("X", text: $regionX)
+                                TextField("Y", text: $regionY)
+                                TextField("Width", text: $regionWidth)
+                                TextField("Height", text: $regionHeight)
+                            }
+                            .keyboardType(.decimalPad)
+                            
+                            Button("Apply Grayscale to Region") {
+                                if let x = Double(regionX), let y = Double(regionY), let width = Double(regionWidth), let height = Double(regionHeight) {
+                                    viewModel.grayscaleRegion = CGRect(x: x, y: y, width: width, height: height)
+                                } else {
+                                    viewModel.grayscaleRegion = nil
+                                }
+                                viewModel.generateImage()
+                            }
+                            
+                            Button("Apply Grayscale to Entire Image") {
+                                viewModel.grayscaleRegion = nil
+                                viewModel.generateImage()
+                            }
+                        }
+                        
+                        Button("Show Advanced Options") {
+                            showingAdvancedOptions.toggle()
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("L-System Generator")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu("Presets") {
+                        ForEach(viewModel.presetSystems.keys.sorted(), id: \.self) { key in
+                            Button(key) {
+                                viewModel.lSystem = viewModel.presetSystems[key]!
+                                viewModel.generateImage()
+                            }
+                        }
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        viewModel.saveToFile()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Load") {
+                        viewModel.loadFromFile()
+                        viewModel.generateImage()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAdvancedOptions) {
+                AdvancedOptionsView(viewModel: viewModel)
+            }
+        }
+    }
+}
+
+struct AdvancedOptionsView: View {
+    @ObservedObject var viewModel: LSystemViewModel
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Custom Colors")) {
+                    ForEach(0..<5) { index in
+                        ColorPicker("Color \(index + 1)", selection: .constant(Color.random))
+                    }
+                }
+                
+                Section(header: Text("Export")) {
+                    Button("Export as Image") {
+                    }
+                }
+            }
+            .navigationTitle("Advanced Options")
+            .navigationBarItems(trailing: Button("Done") {
+                presentationMode.wrappedValue.dismiss()
+            })
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
+}
+
+extension Color {
+    static var random: Color {
+        Color(red: Double.random(in: 0...1),
+              green: Double.random(in: 0...1),
+              blue: Double.random(in: 0
