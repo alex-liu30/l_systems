@@ -1,0 +1,272 @@
+import SwiftUI
+import CoreGraphics
+
+struct LSystem: Codable {
+    var axiom: String
+    var rules: [String: String]
+    var angle: Double
+    var stepSize: Double
+    
+    func generate(iterations: Int) -> String {
+        var result = axiom
+        for _ in 0..<iterations {
+            var newResult = ""
+            for char in result {
+                newResult += rules[String(char)] ?? String(char)
+            }
+            result = newResult
+        }
+        return result
+    }
+}
+
+struct TurtleState {
+    var x: Double
+    var y: Double
+    var angle: Double
+}
+
+class TurtleGraphics {
+    var state: TurtleState
+    var path: CGMutablePath
+    var stack: [TurtleState]
+    
+    init() {
+        self.state = TurtleState(x: 0, y: 0, angle: -90)
+        self.path = CGMutablePath()
+        self.stack = []
+    }
+    
+    func move(_ distance: Double) {
+        let newX = state.x + distance * cos(state.angle * .pi / 180)
+        let newY = state.y + distance * sin(state.angle * .pi / 180)
+        path.move(to: CGPoint(x: state.x, y: state.y))
+        path.addLine(to: CGPoint(x: newX, y: newY))
+        state.x = newX
+        state.y = newY
+    }
+    
+    func turn(_ angle: Double) {
+        state.angle += angle
+    }
+    
+    func push() {
+        stack.append(state)
+    }
+    
+    func pop() {
+        if let lastState = stack.popLast() {
+            state = lastState
+            path.move(to: CGPoint(x: state.x, y: state.y))
+        }
+    }
+}
+
+class LSystemViewModel: ObservableObject {
+    @Published var lSystem: LSystem
+    @Published var iterations: Int = 3
+    @Published var useGrayscale: Bool = false
+    @Published var grayscaleShades: Double = 8
+    @Published var color: Color = .black
+    @Published var presetSystems: [String: LSystem] = [
+        "Koch Curve": LSystem(axiom: "F", rules: ["F": "F+F-F-F+F"], angle: 90, stepSize: 10),
+        "Sierpinski Triangle": LSystem(axiom: "F-G-G", rules: ["F": "F-G+F+G-F", "G": "GG"], angle: 120, stepSize: 10),
+        "Dragon Curve": LSystem(axiom: "FX", rules: ["X": "X+YF+", "Y": "-FX-Y"], angle: 90, stepSize: 10)
+    ]
+    
+    init() {
+        self.lSystem = LSystem(axiom: "F", rules: ["F": "F+F-F-F+F"], angle: 90, stepSize: 10)
+    }
+    
+    func generatePath() -> CGPath {
+        let turtle = TurtleGraphics()
+        let instructions = lSystem.generate(iterations: iterations)
+        
+        for char in instructions {
+            switch char {
+            case "F", "G":
+                turtle.move(lSystem.stepSize)
+            case "+":
+                turtle.turn(lSystem.angle)
+            case "-":
+                turtle.turn(-lSystem.angle)
+            case "[":
+                turtle.push()
+            case "]":
+                turtle.pop()
+            default:
+                break
+            }
+        }
+        
+        return turtle.path
+    }
+    
+    func saveToFile() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(lSystem) {
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let fileURL = documentsDirectory.appendingPathComponent("lsystem.json")
+            try? data.write(to: fileURL)
+        }
+    }
+    
+    func loadFromFile() {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let fileURL = documentsDirectory.appendingPathComponent("lsystem.json")
+        if let data = try? Data(contentsOf: fileURL) {
+            let decoder = JSONDecoder()
+            if let loadedSystem = try? decoder.decode(LSystem.self, from: data) {
+                self.lSystem = loadedSystem
+            }
+        }
+    }
+}
+
+struct LSystemRenderingView: View {
+    @ObservedObject var viewModel: LSystemViewModel
+    
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                let bounds = geometry.size
+                let scale = min(bounds.width, bounds.height) / 2
+                let transform = CGAffineTransform(translationX: bounds.width / 2, y: bounds.height / 2)
+                    .scaledBy(x: scale, y: scale)
+                
+                path.addPath(viewModel.generatePath(), transform: transform)
+            }
+            .stroke(viewModel.useGrayscale ? Color.gray : viewModel.color, lineWidth: 1)
+            .opacity(viewModel.useGrayscale ? Double(viewModel.grayscaleShades) / 256.0 : 1.0)
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var viewModel = LSystemViewModel()
+    @State private var showingAdvancedOptions = false
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                LSystemRenderingView(viewModel: viewModel)
+                    .frame(height: 300)
+                    .border(Color.gray, width: 1)
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField("Axiom", text: $viewModel.lSystem.axiom)
+                        
+                        ForEach(viewModel.lSystem.rules.keys.sorted(), id: \.self) { key in
+                            HStack {
+                                Text(key)
+                                TextField("Rule", text: Binding(
+                                    get: { viewModel.lSystem.rules[key] ?? "" },
+                                    set: { viewModel.lSystem.rules[key] = $0 }
+                                ))
+                            }
+                        }
+                        
+                        Button("Add Rule") {
+                            let newKey = "X\(viewModel.lSystem.rules.count + 1)"
+                            viewModel.lSystem.rules[newKey] = ""
+                        }
+                        
+                        Stepper("Iterations: \(viewModel.iterations)", value: $viewModel.iterations, in: 1...10)
+                        
+                        HStack {
+                            Text("Angle: \(Int(viewModel.lSystem.angle))")
+                            Slider(value: $viewModel.lSystem.angle, in: 0...360, step: 1)
+                        }
+                        
+                        HStack {
+                            Text("Step Size: \(Int(viewModel.lSystem.stepSize))")
+                            Slider(value: $viewModel.lSystem.stepSize, in: 1...50, step: 1)
+                        }
+                        
+                        ColorPicker("Color", selection: $viewModel.color)
+                        
+                        Toggle("Use Grayscale", isOn: $viewModel.useGrayscale)
+                        
+                        if viewModel.useGrayscale {
+                            HStack {
+                                Text("Grayscale Shades: \(Int(viewModel.grayscaleShades))")
+                                Slider(value: $viewModel.grayscaleShades, in: 2...256, step: 1)
+                            }
+                        }
+                        
+                        Button("Show Advanced Options") {
+                            showingAdvancedOptions.toggle()
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("L-System Generator")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu("Presets") {
+                        ForEach(viewModel.presetSystems.keys.sorted(), id: \.self) { key in
+                            Button(key) {
+                                viewModel.lSystem = viewModel.presetSystems[key]!
+                            }
+                        }
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        viewModel.saveToFile()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Load") {
+                        viewModel.loadFromFile()
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAdvancedOptions) {
+                AdvancedOptionsView(viewModel: viewModel)
+            }
+        }
+    }
+}
+
+struct AdvancedOptionsView: View {
+    @ObservedObject var viewModel: LSystemViewModel
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Custom Colors")) {
+                    ForEach(0..<5) { index in
+                        ColorPicker("Color \(index + 1)", selection: .constant(Color.random))
+                    }
+                }
+                
+                Section(header: Text("Export")) {
+                    Button("Export as Image") {
+                    }
+                }
+            }
+            .navigationTitle("Advanced Options")
+            .navigationBarItems(trailing: Button("Done") {
+                presentationMode.wrappedValue.dismiss()
+            })
+        }
+    }
+}
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
+}
+
+extension Color {
+    static var random: Color {
+        Color(red: Double.random(in: 0...1),
+              green: Double.random(in: 0...1),
+              blue: Double.random(in: 0...1))
+    }
+}
